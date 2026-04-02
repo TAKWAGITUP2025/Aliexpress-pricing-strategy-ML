@@ -146,7 +146,7 @@ Raw Data (864k products)
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### 1. Clone the repository
 ```bash
@@ -224,4 +224,4 @@ scipy>=1.10.0
 
 
 
-- University project — Academic Year 2024/2025
+- University project — Academic Year 2026/2027
