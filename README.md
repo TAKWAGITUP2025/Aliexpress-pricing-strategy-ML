@@ -117,31 +117,29 @@ Raw Data (864k products)
 ##  Project Structure
 
 ```
-📁 Aliexpress-pricing-strategy-ML/
+ Aliexpress-pricing-strategy-ML/
 │
-├── 📓 notebook_1_EDA.ipynb
-├── 📓 notebook_2_preprocessing.ipynb
-├── 📓 notebook_3_feature_engineering.ipynb
-├── 📓 notebook_4_feature_selection.ipynb
-├── 📓 notebook_5_clustering.ipynb
-├── 📓 notebook_6_classification.ipynb
-├── 📓 notebook_7_evaluation.ipynb
-├── 📓 notebook_8_explainability.ipynb
-├── 📓 notebook_9_pricing_report.ipynb
+├──  notebook_1_EDA&featureengineering.ipynb
+├──  notebook_2_feature_selection.ipynb
+├──  notebook_3_clustering.ipynb
+├──  notebook__4classification2.ipynb
+├──  notebook_5_evaluation.ipynb
+├──  notebook_6_pricing_report.ipynb
 │
-├── 🐍 app.py                    ← Streamlit app
+├── app.py                    ← Streamlit app
 │
-├── 📦 best_model.pkl            ← Tuned Random Forest
-├── 📦 label_encoder.pkl         ← Strategy label encoder
-├── 📦 scaler_clf.pkl            ← Feature scaler
-├── 📦 kmeans_model.pkl          ← K-Means clustering model
-├── 📦 app_artifacts.pkl         ← All artifacts for deployment
+├──  best_model.pkl            ← Tuned Random Forest
+├──  label_encoder.pkl         ← Strategy label encoder
+├──  scaler_clf.pkl            ← Feature scaler
+├──  kmeans_model.pkl          ← K-Means clustering model
+├──  app_artifacts.pkl         ← All artifacts for deployment
 │
-├── 📄 df_enriched.csv           ← After preprocessing + feature engineering
-├── 📄 df_final.csv              ← After feature selection
-├── 📄 df_clustered.csv          ← After clustering (with strategy labels)
+├──  df_enriched.csv           ← After preprocessing + feature engineering
+├──  df_final.csv              ← After feature selection
+├──  df_clustered.csv          ← After clustering (with strategy labels)
+
 │
-└── 📄 README.md
+└──  README.md
 ```
 
 ---
