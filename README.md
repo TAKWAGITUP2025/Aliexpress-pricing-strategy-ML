@@ -185,6 +185,11 @@ scipy>=1.10.0
 ```
 
 ---
+##  Pre-trained Models
+Download the trained models from Google Drive:
+🔗 [Download Models](https://drive.google.com/drive/folders/1Eh3oae4MnMd6P4G-fqLVxOu5UQ02J5Io?usp=sharing)
+
+**Place all .pkl files in the same folder as app.py**
 
 ##  App Features
 
