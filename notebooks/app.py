@@ -3,10 +3,10 @@ import pandas as pd
 import numpy as np
 import pickle
 import plotly.graph_objects as go
+import os
+import requests
 
 # ── Page Configuration ────────────────────────────────────
-# Sets the browser tab title, icon and layout
-# layout="wide" uses full screen width instead of centered column
 st.set_page_config(
     page_title="Pricing Strategy Recommender",
     page_icon="🏷️",
@@ -14,8 +14,6 @@ st.set_page_config(
 )
 
 # ── Custom CSS ────────────────────────────────────────────
-# Injects custom CSS directly into the Streamlit app
-# This overrides default Streamlit styling for a professional look
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&display=swap');
@@ -93,14 +91,64 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ── Download artifact from Google Drive ──────────────────
+# Handles large files that trigger Google's virus-scan warning page
+
+def download_from_gdrive(file_id: str, dest_path: str) -> None:
+    """
+    Download a file from Google Drive by file ID.
+    Handles the virus-scan confirmation page that Google shows for large files.
+    """
+    session = requests.Session()
+
+    # First request — may redirect to a confirmation page for large files
+    url = "https://drive.google.com/uc"
+    params = {"export": "download", "id": file_id}
+    response = session.get(url, params=params, stream=True)
+
+    # If Google returns a confirmation page, extract the confirm token and retry
+    token = None
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            token = value
+            break
+
+    if token:
+        params["confirm"] = token
+        response = session.get(url, params=params, stream=True)
+
+    # Stream the file content to disk in chunks (avoids memory issues for large files)
+    with open(dest_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=32768):
+            if chunk:
+                f.write(chunk)
+
+
+# ── Artifact path & Google Drive file ID ─────────────────
+# The pkl is saved next to this script (notebooks/) at runtime.
+# Replace PASTE_YOUR_FILE_ID_HERE with the actual ID from your Drive share link.
+# Share link format: https://drive.google.com/file/d/<FILE_ID>/view?usp=sharing
+
+BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+ARTIFACT_PATH = os.path.join(BASE_DIR, "app_artifacts.pkl")
+GDRIVE_FILE_ID = "1exVrqewrSAj8NHAMQ7KWEpoB0YClsrvg"   # ← ✏️ replace this
+
+
 # ── Load artifacts ────────────────────────────────────────
-# @st.cache_resource → loads the file ONCE and keeps it in memory
-# Without this, the 700k+ dataset would reload on every user interaction
 @st.cache_resource
 def load_artifacts():
-    with open('app_artifacts.pkl', 'rb') as f:
+    # Download from Drive if the file isn't already on disk
+    if not os.path.exists(ARTIFACT_PATH):
+        with st.spinner("⬇️ Downloading model artifacts from Google Drive…"):
+            try:
+                download_from_gdrive(GDRIVE_FILE_ID, ARTIFACT_PATH)
+            except Exception as e:
+                st.error(f"Failed to download artifacts: {e}")
+                st.stop()
+
+    with open(ARTIFACT_PATH, "rb") as f:
         return pickle.load(f)
-# Unpack all saved objects from notebook : report_pricing
+
 
 artifacts         = load_artifacts()
 model             = artifacts['model']
@@ -111,8 +159,6 @@ category_list     = artifacts['category_list']
 df_stats          = artifacts['df_stats']
 
 # ── Strategy config — friendlier labels ──────────────────
-# Maps internal cluster names to user-friendly display names
-# "Overpriced Low Performer" → "High-Price Risk" (less harsh for sellers)
 STRATEGY_DISPLAY = {
     'Smart Discounter':          'Smart Discounter',
     'Overpriced Low Performer':  'High-Price Risk',
@@ -127,13 +173,13 @@ strategy_config = {
         'badge': '#2ECC71',
     },
     'Overpriced Low Performer': {
-        'icon':  '📉',          
+        'icon':  '📉',
         'color': '#C0392B',
         'bg':    '#FDECEA',
         'badge': '#E74C3C',
     },
     'Underperformer': {
-        'icon':  '🔧',          # "fixable" framing
+        'icon':  '🔧',
         'color': '#7F6A00',
         'bg':    '#FFFBEA',
         'badge': '#F39C12',
@@ -142,27 +188,21 @@ strategy_config = {
 
 
 # ── Predict ───────────────────────────────────────────────
-# Core ML function — takes user inputs, returns full strategy report
-
 def predict_strategy(category_name, price, rating, shipping_cost):
 
-    # Get all products in this category for context
     cat_data = df_stats[df_stats['category_name'] == category_name]
-    
-    # If unknown category → use global averages as fallback
+
     if len(cat_data) == 0:
         cat_avg_price = df_stats['price'].mean()
         cat_id        = 0
     else:
         cat_avg_price = cat_data['price'].mean()
         cat_id        = cat_data['category_id'].iloc[0]
-    # Feature engineering — same transformations as training
 
     effective_price       = price * (1 - 0.30)
     price_vs_category_avg = price / cat_avg_price if cat_avg_price > 0 else 1
     price_rank            = (cat_data['price'] < price).mean() \
                             if len(cat_data) > 0 else 0.5
-    # Build feature vector — same 7 features used in training
 
     features = pd.DataFrame([{
         'price':                  price,
@@ -173,14 +213,12 @@ def predict_strategy(category_name, price, rating, shipping_cost):
         'price_vs_category_avg':  price_vs_category_avg,
         'effective_price':        effective_price,
     }])
-    
-    # Run prediction through Random Forest model
-    prediction    = model.predict(features)[0]           # predicted class (0,1,2)
-    probabilities = model.predict_proba(features)[0]     # probability per class
-    strategy_name = le.inverse_transform([prediction])[0] # decode to strategy name
-    confidence    = probabilities.max() * 100             # highest probability = confidence
-    
-    # Get strategy-specific advice (discount range, shipping tip, key action)
+
+    prediction    = model.predict(features)[0]
+    probabilities = model.predict_proba(features)[0]
+    strategy_name = le.inverse_transform([prediction])[0]
+    confidence    = probabilities.max() * 100
+
     advice   = strategy_advice[strategy_name]
     cat_best = best_per_category[
         best_per_category['category_name'] == category_name
@@ -190,14 +228,11 @@ def predict_strategy(category_name, price, rating, shipping_cost):
     category_avg_sold = cat_best['avg_sold'].values[0] \
                         if len(cat_best) > 0 else 0
 
-    # Category-aware price thresholds (no more magic number 200)
     price_pct25 = cat_data['price'].quantile(0.25) \
                   if len(cat_data) > 0 else df_stats['price'].quantile(0.25)
     price_pct75 = cat_data['price'].quantile(0.75) \
                   if len(cat_data) > 0 else df_stats['price'].quantile(0.75)
 
-    
-    # Return complete report as dictionary
     return {
         'strategy':          strategy_name,
         'display_name':      STRATEGY_DISPLAY[strategy_name],
@@ -218,7 +253,6 @@ def predict_strategy(category_name, price, rating, shipping_cost):
 
 
 # ── Sidebar ───────────────────────────────────────────────
-# Everything inside "with st.sidebar" appears in the left panel
 with st.sidebar:
     st.markdown("### 📦 Product Details")
     st.caption("Fill in your product information:")
@@ -229,8 +263,7 @@ with st.sidebar:
         index=category_list.index('consumer-electronics')
         if 'consumer-electronics' in category_list else 0
     )
-    
-    # Number input for price — range 1 to 10,000 DT
+
     price = st.number_input(
         "Price (SAR)",
         min_value=1.0,
@@ -238,8 +271,7 @@ with st.sidebar:
         value=100.0,
         step=10.0
     )
-    
-    # Slider for rating — 0.0 to 5.0 in steps of 0.1
+
     rating = st.slider(
         "Product Rating",
         min_value=0.0,
@@ -247,8 +279,7 @@ with st.sidebar:
         value=4.0,
         step=0.1
     )
-    
-    # Number input for shipping — 0 means free
+
     shipping = st.number_input(
         "Shipping Cost (DT)",
         min_value=0.0,
@@ -260,8 +291,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Live input sanity hints — no need to hit the button first
-    # Warns seller about potential issues with their inputs
     hints = []
     if rating < 3.0:
         hints.append("⚠️ Low rating may hurt performance")
@@ -270,8 +299,7 @@ with st.sidebar:
     if hints:
         for h in hints:
             st.warning(h, icon=None)
-            
-    # Main action button — triggers prediction when clicked
+
     predict_btn = st.button(
         "🚀 Get Strategy",
         use_container_width=True,
@@ -288,18 +316,14 @@ st.divider()
 
 
 # ── Results ───────────────────────────────────────────────
-# Only shown AFTER user clicks "Get Strategy"
 if predict_btn:
-    
-    # Show spinner while model is running
+
     with st.spinner("Analysing pricing strategy…"):
         report = predict_strategy(category, price, rating, shipping)
-        
-    # Get visual config for predicted strategy
+
     cfg          = strategy_config[report['strategy']]
     display_name = report['display_name']
 
-    # Banner
     st.markdown(f"""
     <div style="
         background:{cfg['bg']};
@@ -316,8 +340,6 @@ if predict_btn:
     </div>
     """, unsafe_allow_html=True)
 
-    # Explain the confidence gap if winner ≠ predicted strategy
-    # → tell the seller how far they are from the winner
     if report['category_winner'] != report['strategy']:
         winner_prob = report['probabilities'].get(report['category_winner'], 0)
         st.caption(
@@ -326,8 +348,6 @@ if predict_btn:
             f"adjust price / shipping to move toward it."
         )
 
-    # Key metrics
-    # Shows at a glance: discount range, confidence, category winner, avg sold
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Recommended Discount", report['discount_range'])
     col2.metric("Confidence",           f"{report['confidence']:.1f}%")
@@ -340,7 +360,6 @@ if predict_btn:
 
     left, right = st.columns(2)
 
-    # ── Left column ───────────────────────────────────────
     with left:
         st.subheader("📋 Recommendations")
         st.info(f"**💰 Pricing:** {report['pricing_tip']}")
@@ -357,12 +376,10 @@ if predict_btn:
 | 25th–75th Price Percentile | **{report['price_pct25']:.0f} – {report['price_pct75']:.0f} DT** |
         """)
 
-    # ── Right column ──────────────────────────────────────
     with right:
         st.subheader("📈 Strategy Probability")
 
-        probs = report['probabilities']
-        # Use display names in chart
+        probs        = report['probabilities']
         display_keys = [STRATEGY_DISPLAY.get(k, k) for k in probs.keys()]
         colors       = [strategy_config[s]['color'] for s in probs.keys()]
 
@@ -399,7 +416,6 @@ if predict_btn:
         ideal_vals = [0.8, 0.95, 1.0, 0.8]
 
         def hex_to_rgba(hex_color, alpha=0.2):
-            """Convert #RRGGBB to rgba(r,g,b,alpha) for Plotly."""
             h = hex_color.lstrip('#')
             r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
             return f'rgba({r},{g},{b},{alpha})'
@@ -433,12 +449,11 @@ if predict_btn:
 
     st.divider()
 
-    # ── Action Plan — category-aware thresholds ───────────
     st.subheader("🗺️ Action Plan to Become Smart Discounter")
 
-    p25, p75 = report['price_pct25'], report['price_pct75']
-    price_ok   = p25 <= price <= p75
-    rating_ok  = rating >= 4.0
+    p25, p75    = report['price_pct25'], report['price_pct75']
+    price_ok    = p25 <= price <= p75
+    rating_ok   = rating >= 4.0
     shipping_ok = shipping == 0
 
     step1, step2, step3 = st.columns(3)
