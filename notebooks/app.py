@@ -116,7 +116,7 @@ def load_artifacts():
         st.info("⬇️ Downloading model artifacts from Google Drive…")
         url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
         try:
-            gdown.download(url, ARTIFACT_PATH, quiet=False, fuzzy=True)
+            gdown.download(url, ARTIFACT_PATH, quiet=False)
         except Exception as e:
             st.error(f"❌ Download failed: {e}")
             st.stop()
