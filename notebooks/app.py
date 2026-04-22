@@ -4,7 +4,8 @@ import numpy as np
 import pickle
 import plotly.graph_objects as go
 import os
-import requests
+import subprocess
+import sys
 
 # ── Page Configuration ────────────────────────────────────
 st.set_page_config(
@@ -91,60 +92,47 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Download artifact from Google Drive ──────────────────
-# Handles large files that trigger Google's virus-scan warning page
-
-def download_from_gdrive(file_id: str, dest_path: str) -> None:
-    """
-    Download a file from Google Drive by file ID.
-    Handles the virus-scan confirmation page that Google shows for large files.
-    """
-    session = requests.Session()
-
-    # First request — may redirect to a confirmation page for large files
-    url = "https://drive.google.com/uc"
-    params = {"export": "download", "id": file_id}
-    response = session.get(url, params=params, stream=True)
-
-    # If Google returns a confirmation page, extract the confirm token and retry
-    token = None
-    for key, value in response.cookies.items():
-        if key.startswith("download_warning"):
-            token = value
-            break
-
-    if token:
-        params["confirm"] = token
-        response = session.get(url, params=params, stream=True)
-
-    # Stream the file content to disk in chunks (avoids memory issues for large files)
-    with open(dest_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=32768):
-            if chunk:
-                f.write(chunk)
+# ── Install gdown at runtime if missing ──────────────────
+# gdown is purpose-built to download large files from Google Drive.
+# It handles the virus-scan confirmation page automatically,
+# which is what was causing the "invalid load key '<'" UnpicklingError.
+try:
+    import gdown
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown", "-q"])
+    import gdown
 
 
-# ── Artifact path & Google Drive file ID ─────────────────
-# The pkl is saved next to this script (notebooks/) at runtime.
-# Replace PASTE_YOUR_FILE_ID_HERE with the actual ID from your Drive share link.
-# Share link format: https://drive.google.com/file/d/<FILE_ID>/view?usp=sharing
-
-BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
-ARTIFACT_PATH = os.path.join(BASE_DIR, "app_artifacts.pkl")
-GDRIVE_FILE_ID = "1exVrqewrSAj8NHAMQ7KWEpoB0YClsrvg"   # ← ✏️ replace this
+# ── Artifact config ───────────────────────────────────────
+BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
+ARTIFACT_PATH  = os.path.join(BASE_DIR, "app_artifacts.pkl")
+GDRIVE_FILE_ID = "1exVrqewrSAj8NHAMQ7KWEpoB0YClsrvg"
 
 
 # ── Load artifacts ────────────────────────────────────────
 @st.cache_resource
 def load_artifacts():
-    # Download from Drive if the file isn't already on disk
     if not os.path.exists(ARTIFACT_PATH):
-        with st.spinner("⬇️ Downloading model artifacts from Google Drive…"):
-            try:
-                download_from_gdrive(GDRIVE_FILE_ID, ARTIFACT_PATH)
-            except Exception as e:
-                st.error(f"Failed to download artifacts: {e}")
-                st.stop()
+        st.info("⬇️ Downloading model artifacts from Google Drive…")
+        url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
+        try:
+            gdown.download(url, ARTIFACT_PATH, quiet=False, fuzzy=True)
+        except Exception as e:
+            st.error(f"❌ Download failed: {e}")
+            st.stop()
+
+    # Safety check: if Google returned an HTML error page instead of the pkl,
+    # the file will start with '<'. Catch it early with a clear message.
+    with open(ARTIFACT_PATH, "rb") as f:
+        header = f.read(1)
+    if header == b"<":
+        os.remove(ARTIFACT_PATH)
+        st.error(
+            "❌ Google Drive returned an HTML page instead of the pkl file.\n\n"
+            "**Fix:** Open the file in Drive → Share → set to "
+            "**'Anyone with the link'** → Save."
+        )
+        st.stop()
 
     with open(ARTIFACT_PATH, "rb") as f:
         return pickle.load(f)
